@@ -1,0 +1,77 @@
+---
+title: "hw1"
+author: "Keith G. Williams 800690755"
+date: "Tuesday, February 02, 2016"
+output: html_document
+---
+
+```{r}
+# load files
+
+file1 <- './hw1-results-run4.csv'
+file2 <- './hw1-results-run5.csv'
+file3 <- './hw1-results-run6.csv'
+
+run1 <- read.csv(file1, stringsAsFactors = FALSE)
+run2 <- read.csv(file2, stringsAsFactors = FALSE)
+run3 <- read.csv(file3, stringsAsFactors = FALSE)
+
+# merge trials by taking the average time / accuracy
+trial_mean <- function(r1, r2, r3) {
+    x <- matrix(c(r1, r2, r3), ncol = 3)
+    return(apply(x, 1, mean))
+}
+
+mean_accuracy <- trial_mean(run1$accuracy, run2$accuracy, run3$accuracy)
+mean_run_time <- trial_mean(run1$run_time, run2$run_time, run3$run_time)
+
+results <- data.frame(algorithm = run1$algorithm, 
+                      k = run1$k, 
+                      sample_size = run1$sample_size,
+                      accuracy = mean_accuracy,
+                      run_time = mean_run_time)
+```
+
+# English Description of Algorithms
+Include any assumptions or design decisions made.
+
+## knn
+
+## cnn
+
+# Experimental Results
+
+## run time
+
+## classification accuracy
+
+## confusion matrix exemplar
+
+# Analysis of Experiments
+
+## Effects on accuracy and runtime
+
+```{r}
+library(ggplot2)
+library(dplyr)
+
+# plot k vs accuracy, k vs run time
+kacc <- ggplot(results, aes(as.factor(k), accuracy, fill=algorithm)) + 
+    geom_bar(stat="identity", position = 'dodge') +
+    facet_grid(.~sample_size)
+# knn more accurate than cnn
+# As N increases, accuracy increases,
+# As k increases, accuracy decreases
+
+kt <- ggplot(results, aes(as.factor(k), log10(run_time), fill=algorithm)) +
+    geom_bar(stat="identity", position = 'dodge') +
+    facet_grid(.~sample_size)
+# knn 2 orders of magnitude faster than cnn
+# as N increases, log10(t) increases 
+# as k increases, time stays flat (k=1 optimized, so gets a bump)
+
+# plot n vs accuracy, n vs run time, k removed
+nt <- ggplot(filter(results, algorithm == 'knn'), aes(sample_size, run_time)) +
+    geom_point() +
+    geom_smooth(se=F)
+```
