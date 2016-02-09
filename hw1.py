@@ -61,7 +61,7 @@ def testknn(trainX, trainY, testX, k=1):
             k_shortest_distances = np.sort(distances)[:k]
             nn_labels = [trainY[np.where(distances == distance)[0][0]] for distance in k_shortest_distances]
             label = mode(nn_labels)[0][0]       # assign label by majority vote
-    
+            
         testY.append(label)
     
     return np.array(testY)
