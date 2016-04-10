@@ -7,6 +7,7 @@ email: kwill229@uncc.edu
 
 # imports
 import numpy as np
+import matplotlib.pyplot as plt
 import pandas as pd
 
 ################################################################################
@@ -14,7 +15,7 @@ import pandas as pd
 ################################################################################
 
 def generateData(N):
-    """Generates N 2-d points randomly sampled from the uniform distribution.
+    """Generates n 2-d points randomly sampled from the uniform distribution.
     A linear seperator is chosen as the target function, and all points above
     the line are labeled +1 and -1 otherwise.
     
@@ -122,22 +123,24 @@ def pseudoinverse(X, Y):
 #################################################################################
 
 def results_to_df(results, ns):
-    """Export 2d array to dataframe for exporting to CSV
+    """Export 3d array to dataframe for exporting to CSV
     
     Parameters
     ----------
-    results: 6x2 3d numpy array with average results from experiment
+    results: 100x6x2 3d numpy array with raw results from experiment
     
     Returns
     -------
     Tidy pandas dataframe"""
     d = {}
+    trials = np.concatenate([[n, n] for n in range(1, results.shape[1] + 1)])
+    d['trial'] = np.concatenate([trials for _i in range(results.shape[0])])
     n = []
     for i in range(results.shape[0]):
-        n += [ns[i]] * results.shape[1]
+        n += [ns[i]] * results.shape[1] * results.shape[2]
     d['n'] = n
-    d['initialized'] = ['no', 'yes'] * results.shape[0]
-    d['mean_iters'] = results.reshape(results.size)
+    d['initialized'] = ['no', 'yes'] * results.shape[0] * results.shape[1]
+    d['iters'] = results.reshape(results.size)
     
     return pd.DataFrame(d)
     
@@ -150,27 +153,66 @@ def run_experiments():
     initialized = [False, True]          # boolean for initialized weight vector
        
     # results matrix of average iterations needed for PLA convergence
-    results = np.zeros((len(n_list), len(initialized)))
+    results = np.zeros((len(n_list), TRIALS, len(initialized)))
 
     # collect the average iterations to convergence for PLA with and without
     # initialized weight vector from pseudoinverse.
     np.random.seed(6156) # set seed for replicability
-    for n in range(len(n_list)):
-        raw = np.zeros((TRIALS, 2))
-        for i in range(TRIALS):
-            training_data = generateData(n_list[n])
-            for j in range(2):
-                if initialized[j]:
+    for i in range(len(n_list)):
+        print 'n:', n_list[i] # TESTING
+        print '='*40  # TESTING
+        for j in range(TRIALS):
+            training_data = generateData(n_list[i])
+            for k in range(2):
+                if initialized[k]:
                     w0 = pseudoinverse(training_data[0], training_data[1])
                     w, iters = pla(training_data[0], training_data[1], w0)
                 else:
                     w, iters = pla(training_data[0], training_data[1])
-                raw[i, j] = iters
-        results[n] = np.mean(raw, axis=0)
+                results[i, j, k] = iters
+                print 'i:', j, initialized[k], 'iters:', iters # TESTING
     
     df = results_to_df(results, n_list)
-    df.to_csv('hw2-mean-results.csv', index=False)
+    print df
+    df.to_csv('hw2-results.csv', index=False)
 
-        
+################################################################################
+## Visualization of PLA decision boundary for testing
+################################################################################
+
+def get_pts(w):
+    """Get two points on the line predicted by a weight vector.
+    
+    Parameters
+    ----------
+    w : array_like
+        weight vector
+    
+    Returns
+    -------
+    2*2 numpy array [(-1, y), (1, y)]"""
+    return np.array([[-1, (-w[0] + w[1]) / w[2]], [1, (-w[0] - w[1]) / w[2]]])
+
+TEST = False
+
+def test(n):
+    dat = generateData(n)
+    h = pla(dat[0], dat[1])
+    w = h[0]
+    hpts = get_pts(w)
+    
+    pos = dat[0][dat[1] > 0]
+    neg = dat[0][dat[1] < 0]
+    
+    plt.figure()
+    plt.plot(pos[:, 0], pos[:, 1], 'ro')
+    plt.plot(neg[:, 0], neg[:, 1], 'bo')
+    plt.plot(hpts[:, 0], hpts[:, 1], 'k-')
+    plt.show()
+         
 if __name__ == '__main__':
-    run_experiments()
+    if TEST:
+        for n in [10, 50, 100, 200, 500, 1000]:
+            test(n)
+    else:
+        run_experiments()
