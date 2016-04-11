@@ -3,10 +3,18 @@ Homework 3
 Completed as part of DSBA 6156 Machine Learning, Spring 2016
 Keith G. Williams    kwill229@uncc.edu    800690755
 """
+#################################################################################
+##    Imports
+#################################################################################
+
 import numpy as np
 import pandas as pd
-from scipy import stats
-import random as random
+
+TRAIN_PROPORTION = 0.75
+
+#################################################################################
+##    Helper Code for Required Functions
+#################################################################################
 
 def split_train_test(x, y, p):
     """
@@ -22,7 +30,6 @@ def split_train_test(x, y, p):
     -------
     list of arrays x_train, y_train, x_test, y_test
     """
-    random.seed(6156)
     # listify x and y for list comprehension later
     xy = [x, y]
     
@@ -66,6 +73,34 @@ def entropy(probs):
     calculate the entropy given an array of probabilities
     """
     return np.sum(-probs * np.log2(probs))
+    
+def pseudoinverse(X, Y):
+    """Given feature matrix X, and continuous vector Y, return the learned
+    weight vector, such that y_hat = (w.T)X gives the line of best fit that
+    minimizes the squared error.
+    
+    Parameters
+    ----------
+    X : nD numpy array
+        Input Data.
+    Y : 1D numpy array of Real values
+        target variable (labels)
+        
+    Returns
+    -------
+    w : 1D numpy array
+        Learned weight vector that minimizes squared error.
+    """
+    # add bias term
+    x = np.copy(X)
+    x = np.c_[np.ones(np.size(Y)), x]
+    
+    pinv = np.dot(np.linalg.inv(np.dot(x.T, x)), x.T)
+    return np.dot(pinv, Y)
+
+################################################################################
+##    Weak Learner Functions: Decision Stumps and Pocket PLA
+################################################################################
 
 def decision_stump(XTrain, YTrain, weights=None):
     """
@@ -84,8 +119,8 @@ def decision_stump(XTrain, YTrain, weights=None):
         lowest entropy.
     model : dictionary that maps feature value to prediction
     """    
-    # get labels and training dimensions
-    labels = np.unique(YTrain)
+    # get training dimensions
+    #labels = np.unique(YTrain)
     n_examples = XTrain.shape[0]
     n_features = XTrain.shape[1]
     
@@ -103,7 +138,7 @@ def decision_stump(XTrain, YTrain, weights=None):
         for _val in np.unique(XTrain[:, i]):
             mask = XTrain[:, i] == _val
             probs, dummy_l = p_label_subset(YTrain[np.where(mask)], weights[np.where(mask)])
-            entropy_sum += mask.sum() / float(n_examples) * entropy(probs)
+            entropy_sum += entropy(probs) * mask.sum() / float(n_examples)
         entropies[i] = entropy_sum
     
     # index of feature whose split minimizes class entropy
@@ -135,23 +170,63 @@ def predict_stump(x, model):
     """
     return np.array([model[x[i]] for i in range(len(x))])
     
-#def labels_to_R(labels, label_vector):
-#    """
-#    Converts string labels to a real number in {-1, 1}
-#    Parameters
-#    ----------
-#    labels : array like of string labels
-#    label_vector : array like vector of labels to be converted
-#    
-#    Returns
-#    -------
-#    y : vector of -1 and 1 of same length as label_vector
-#    """
-#    mask = label_vector == labels[0]
-#    y = np.ones(len(label_vector))
-#    y[-mask] *= -1
-#    return y
+def pla(X, Y, w0=None):
+    """Perceptron learning algorithm is a linear classifier.
+    
+    Parameters
+    ----------
+    X : nD numpy array
+        Input data.
+    Y : 1D numpy array of labels in {-1, +1}
+    w0: optional initial weight vector
+    
+    Returns
+    ------
+    (w, iters) : tuple
+        w is the learned weight vector that separates -1 from +1
+        iters is the number of iterations needed for convergence.
+    """
+    n = np.size(Y)
+    max_iters = n * 100
+    
+    # preappend bias term to X
+    x = np.c_[np.ones(n), X]
+    
+    # initialize weights to zero if none provided
+    if w0 is None:
+        w = np.zeros(x.shape[1])
+    else:
+        w = w0
+    
+    # initialize pocket weight and error
+    w_pocket = np.copy(w)
+    e_pocket = n    
+                
+    # update weight vector until max iterations achieved
+    for i in range(max_iters):
+        # get error count
+        hypothesis = np.sign(np.dot(x, w))
+        check = hypothesis != Y
+        e_count = check.sum()
+        if e_count == 0:
+            break
+        
+        # update pocket weight if current weight yields a better error
+        if e_count < e_pocket:
+            e_pocket = e_count
+            w_pocket = np.copy(w)
+            
+        # choose a misclassified point
+        j = np.random.choice(np.where(check)[0])
+        # update weight vector
+        w += Y[j] * x[j]
+            
+    return w_pocket
 
+################################################################################
+##    Required Functions: adaPredict, adaTrain
+################################################################################
+      
 def adaPredict(model, XTest):
     """
     Parameters
@@ -165,22 +240,36 @@ def adaPredict(model, XTest):
     YTest : 1-D array of predicted labels corresponding to the provided test
         examples.
     """
-    # Encode valuse as indices in model
-    encoding = {'?' : 0, 'n' : 1, 'y' : 2}
+    model_dt = model[0]
+    model_pla = model[1]
+    alpha = model[2]
+    # Encode values as indices in model
+    x = np.copy(XTest)
     
-    # compute ensemble predictions
-    predict = np.zeros(XTest.shape)
-    for i in range(XTest.shape[0]):
-        for j in range(XTest.shape[1]):
-            predict[i, j] = model[encoding[XTest[i, j]], j]
+    n = x.shape[0]
+    
+    predict_pla = np.zeros(x.shape[0])
+    predict_dt = np.zeros(x.shape)
+    
+    # iterate over each example
+    for i in range(n):
+        # calculate pla predictions
+        h_pla = np.sign(np.dot(np.concatenate((np.array([1]), x[i, :])), model_pla.T))
+        # multiply each prediction by alpha
+        predict_pla[i] = np.sum(h_pla * alpha)
+        
+        # calculate dt predictions
+        for j in range(x.shape[1]):
+            #x[i, j] + 1 = index in model_dt matrix
+            predict_dt[i, j] = model_dt[x[i, j] + 1, j] 
     
     # compute weighted predictions        
-    weighted_predictions = np.sum(predict, 1)
+    weighted_predictions = predict_pla + np.sum(predict_dt, 1)
     positive = weighted_predictions > 0
     negative = weighted_predictions < 0
-    negative *= -1
+    negative = negative.astype(int) * -1
     
-    return negative + positive    
+    return negative + positive.astype(int)
 
 def adaTrain(XTrain, YTrain, version):
     """
@@ -188,7 +277,7 @@ def adaTrain(XTrain, YTrain, version):
     ----------
     XTrain : the training examples, n*D numpy ndarray where N is the number of
         training examples and D is the dimensionality.
-    YTrain : 1-D array of training labels.
+    YTrain : 1-D array of real numbered training labels.
     version : option for learners, string 'stump', 'perceptron', or 'both'
         stump uses one-level decision trees that split on a single attribute
         perceptron uses pocket PLA
@@ -198,90 +287,138 @@ def adaTrain(XTrain, YTrain, version):
     model : object containing the parameters of the trained model
     """
     # partition data into training and validation
-    x_train, y_train, x_val, y_val = split_train_test(XTrain, YTrain, .75)
+    x_train, y_train, x_val, y_val = split_train_test(XTrain, YTrain, TRAIN_PROPORTION)
     
     # get shape of training data
     n = x_train.shape[0]
     p = x_train.shape[1]
     
     # set max number of iterations (T)
-    TMAX = 50
+    TMAX = 25
+    
+    # initialize alphas
+    alpha = np.zeros(TMAX)
     
     # initialize N vector of weights for each data sample
     weights = np.array([1. / n] * n)
-        
-    # get labels and convert to one of {-1, +1}
-    labels = np.unique(y_train)
-    label_to_R = {labels[0] : 1, labels[1] : -1}
-    y = np.array([label_to_R[label] for label in y_train])
     
-    # initialize model as a 3 * p matrix, where each value in XTrain
-    # is indexed by i, and each feature is indexed by p
+    # initialize boosted tree model as a 3 * p matrix, 
+    # where each value in XTrain is indexed by i, 
+    # and each feature is indexed by p
     vals = np.unique(x_train)
     encoding = {vals[i] : i for i in range(len(vals))}
-    model = np.zeros((len(vals), p))
+    btd_dt = np.zeros((len(vals), p))
+    
+    # initialize perceptron model as TMAX * p + 1 matrix
+    # for weight vectors learned by perceptron
+    # and the weight each vector has on final prediction
+    btd_pla = np.zeros((TMAX, p + 1))
     
     # Train weak learners and update weights
     t = 0
+    validation_errors = [1]
     finished = False
     while not finished:
         # Train base learner using distribution weights
+        # decision trees
         feature, dt_model = decision_stump(x_train, y_train, weights)
         
-        # Get base classifier h_t : X -> {-1, +1}
-        predict = predict_stump(x_train[:, feature], dt_model)
-        predictR = np.array([label_to_R[label] for label in predict])
-        
+        # pocket pla
+        # create weighted sample training set
+        sample_idx = np.random.choice(range(n), size=n, p = weights)
+        btd_pla[t, :] = pla(x_train[sample_idx], y_train[sample_idx])    
+                    
+        # get base classifier h_t : X -> {-1, +1}
+        predict_dt = predict_stump(x_train[:, feature], dt_model)
+        e_dt = np.mean(predict_dt * y_train < 0)
+        predict_pla = np.sign(np.dot(np.c_[np.ones(n), x_train], btd_pla[t, :]))
+        e_pla = np.mean(predict_pla * y_train < 0)
+            
         # Get classifier error
-        compare = predictR * y
-        misclassified = compare < 0
-        e_train = np.mean(misclassified)
+        if version == 'stump' or (version == 'both' and e_dt < e_pla):
+            e_train = e_dt
+            predict = predict_dt
+            btd_pla[t, :] *= 0
+        else:
+            e_train = e_pla
+            predict = predict_pla
         
         # Choose alpha_t is a member of the reals
-        alpha = np.log((1 - e_train) / e_train) / 2
+        alpha[t] = np.log((1 - e_train) / e_train) / 2
         
         # Update ensemble model
-        for key in dt_model:
-            model[encoding[key], feature] += alpha * label_to_R[dt_model[key]]
+        if version == 'stump' or (version == 'both' and e_dt < e_pla):
+            for key in dt_model:
+                btd_dt[encoding[key], feature] += alpha[t] * dt_model[key] 
         
         # Update distribution weights and renormalize
-        weights *= np.exp(alpha * -compare)
-        weights = weights / np.sum(weights)
+        update = -1 * y_train * alpha[t] * predict
+        weights *= np.exp(update.astype('float64'))
+        weights /= np.sum(weights)
                 
-        # Check if validation error is increasing or if t == TMAX
-        predict_val = adaPredict(model, x_val)
-        y_val_r = np.array([label_to_R[label] for label in y_val])
-        e_val = np.mean(predict_val * y_val_r < 0)
-        print e_val
-            
+        # Calculate validation errors
+        predict_val = adaPredict((btd_dt, btd_pla, alpha), x_val)
+        e_val = np.mean(predict_val * y_val < 0)
+        validation_errors.append(e_val)
+        
+        # update t and check finish conditions
         t += 1
         if t == TMAX:
             finished = True
+            # find minimum CV error
+            cut = np.where(np.array(validation_errors) == min(validation_errors))[0][0]
+            
+            # roll back dt adjustments
+            if version in ['stump', 'both']:
+                for trn_rnd in range(cut, TMAX):
+                    for key in dt_model:
+                        btd_dt[encoding[key], feature] -= alpha[trn_rnd] * dt_model[key] 
         
     # Create model output
-    return model
-    
+    return (btd_dt, btd_pla[:cut,:], alpha[:cut])
+   
+################################################################################
+##    Main Function
+################################################################################ 
+      
 def run_experiments():
-    pass
+    DATA_FILE = './house-votes-84.data'
+    TRIALS = 10
+    
+    df = pd.read_csv(DATA_FILE, header=None)
+    x, y = df.values[:, 1:], df.values[:,0]
+    x[np.where(x == 'y')] = 1
+    x[np.where(x == 'n')] = -1
+    x[np.where(x == '?')] = 0
+    y[np.where(y == 'democrat')] = 1
+    y[np.where(y == 'republican')] = -1
+    
+    accuracies = {'stump' : [], 'perceptron' : [], 'both' : []}
+    for version in accuracies:
+        for _i in range(TRIALS):
+            xtrain, ytrain, xtest, ytest = split_train_test(x, y, TRAIN_PROPORTION)
+            boosted_model = adaTrain(xtrain, ytrain, version)
+            predictions = adaPredict(boosted_model, xtest)
+            accuracies[version].append(np.mean(predictions == ytest))
+    
+    df = pd.DataFrame(accuracies)
+    df.to_csv('hw3-results.csv', index=False)
 
 def testing():
     # test decision stump
-    df = pd.read_csv('./house-votes-84.data', header=None)
+    df = pd.read_csv(DATA_FILE, header=None)
     x, y = df.values[:, 1:], df.values[:,0]
-    x[np.where(x=='y')] = 1
-    x[np.where(x=='n')] = -1
-    x[np.where(x=='?')] = 0
-    #t = decision_stump(df.values[:,1:], df.values[:,0])
-    #pred = [t[1][df.values[i, t[0] + 1]] for i in range(df.values.shape[0])]
-    #print pred, df.values[:,0]
-    #print np.mean(pred == df.values[:,0])
-    #return t
+    x[np.where(x == 'y')] = 1
+    x[np.where(x == 'n')] = -1
+    x[np.where(x == '?')] = 0
+    y[np.where(y == 'democrat')] = 1
+    y[np.where(y == 'republican')] = -1
     
     from sklearn.ensemble import AdaBoostClassifier
-    bdt = AdaBoostClassifier(random_state = 6156)
-    fitted = bdt.fit(x, y)
+    #bdt = AdaBoostClassifier(random_state = 6156)
+    #fitted = bdt.fit(x, y)
 
-    return adaTrain(x, y, 'stump'), fitted
+    return adaTrain(x, y, 'perceptron')#, fitted
             
 if __name__ == '__main__':
     run_experiments()

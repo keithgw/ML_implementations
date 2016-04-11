@@ -1,0 +1,13 @@
+---
+title: "hw3"
+author: "Keith G. Williams 800690755"
+date: "Monday, April 11, 2016"
+output: html_document
+---
+
+```{r}
+setwd('~/DSBA 6156/ML_implementations')
+results <- read.csv('hw3-results.csv')
+View(results)
+
+```
