@@ -243,12 +243,12 @@ def adaPredict(model, XTest):
     model_dt = model[0]
     model_pla = model[1]
     alpha = model[2]
-    # Encode values as indices in model
-    x = np.copy(XTest)
     
+    # Get shape of XTest
+    x = np.copy(XTest)
     n = x.shape[0]
     
-    predict_pla = np.zeros(x.shape[0])
+    predict_pla = np.zeros(n)
     predict_dt = np.zeros(x.shape)
     
     # iterate over each example
@@ -314,9 +314,12 @@ def adaTrain(XTrain, YTrain, version):
     # and the weight each vector has on final prediction
     btd_pla = np.zeros((TMAX, p + 1))
     
+    ctt = []
+    ctp = []
+    
     # Train weak learners and update weights
     t = 0
-    validation_errors = [1]
+    validation_errors = []
     finished = False
     while not finished:
         # Train base learner using distribution weights
@@ -330,18 +333,22 @@ def adaTrain(XTrain, YTrain, version):
                     
         # get base classifier h_t : X -> {-1, +1}
         predict_dt = predict_stump(x_train[:, feature], dt_model)
-        e_dt = np.mean(predict_dt * y_train < 0)
+        e_dt = np.mean(predict_dt != y_train)
         predict_pla = np.sign(np.dot(np.c_[np.ones(n), x_train], btd_pla[t, :]))
-        e_pla = np.mean(predict_pla * y_train < 0)
+        e_pla = np.mean(predict_pla != y_train)
             
         # Get classifier error
         if version == 'stump' or (version == 'both' and e_dt < e_pla):
             e_train = e_dt
             predict = predict_dt
             btd_pla[t, :] *= 0
+            ctt.append(1)
+            ctp.append(0)
         else:
             e_train = e_pla
             predict = predict_pla
+            ctp.append(1)
+            ctt.append(0)
         
         # Choose alpha_t is a member of the reals
         alpha[t] = np.log((1 - e_train) / e_train) / 2
@@ -358,7 +365,7 @@ def adaTrain(XTrain, YTrain, version):
                 
         # Calculate validation errors
         predict_val = adaPredict((btd_dt, btd_pla, alpha), x_val)
-        e_val = np.mean(predict_val * y_val < 0)
+        e_val = np.mean(predict_val != y_val)
         validation_errors.append(e_val)
         
         # update t and check finish conditions
@@ -375,7 +382,7 @@ def adaTrain(XTrain, YTrain, version):
                         btd_dt[encoding[key], feature] -= alpha[trn_rnd] * dt_model[key] 
         
     # Create model output
-    return (btd_dt, btd_pla[:cut,:], alpha[:cut])
+    return (btd_dt, btd_pla[:cut,:], alpha[:cut], sum(ctt[:cut]), sum(ctp[:cut]))
    
 ################################################################################
 ##    Main Function
@@ -393,19 +400,24 @@ def run_experiments():
     y[np.where(y == 'democrat')] = 1
     y[np.where(y == 'republican')] = -1
     
+    xtrain, ytrain, xtest, ytest = split_train_test(x, y, TRAIN_PROPORTION)
+    
     accuracies = {'stump' : [], 'perceptron' : [], 'both' : []}
-    for version in accuracies:
-        for _i in range(TRIALS):
-            xtrain, ytrain, xtest, ytest = split_train_test(x, y, TRAIN_PROPORTION)
+    for _i in range(TRIALS):
+        print 'trial', _i
+        for version in accuracies:
+            print version
             boosted_model = adaTrain(xtrain, ytrain, version)
             predictions = adaPredict(boosted_model, xtest)
             accuracies[version].append(np.mean(predictions == ytest))
+            print np.mean(predictions == ytest)
     
     df = pd.DataFrame(accuracies)
     df.to_csv('hw3-results.csv', index=False)
 
 def testing():
-    # test decision stump
+    DATA_FILE = './house-votes-84.data'
+    # find distribution of learners for version = 'both'
     df = pd.read_csv(DATA_FILE, header=None)
     x, y = df.values[:, 1:], df.values[:,0]
     x[np.where(x == 'y')] = 1
@@ -414,11 +426,18 @@ def testing():
     y[np.where(y == 'democrat')] = 1
     y[np.where(y == 'republican')] = -1
     
-    from sklearn.ensemble import AdaBoostClassifier
-    #bdt = AdaBoostClassifier(random_state = 6156)
-    #fitted = bdt.fit(x, y)
-
-    return adaTrain(x, y, 'perceptron')#, fitted
+    xtrain, ytrain, xtest, ytest = split_train_test(x, y, TRAIN_PROPORTION)
+        
+    d_learn = {'stump' : [], 'perceptron' : []}
+    for _i in range(10):
+        model = adaTrain(xtrain, ytrain, 'both')
+        d_learn['stump'].append(model[3])
+        d_learn['perceptron'].append(model[4])
+        
+    df = pd.DataFrame(d_learn)
+    df.to_csv('hw3-learner-distributions.csv', index = False)
+    
             
 if __name__ == '__main__':
-    run_experiments()
+    #run_experiments()
+    testing()
